@@ -5,9 +5,9 @@ A Discord bot cog that handles the 'pickle size' game functionality.
 Includes commands for checking pickle sizes, leaderboard, and growth tracking graphs.
 """
 
-import nextcord
-from nextcord.ext import commands, tasks
-from nextcord import Embed
+import discord
+from discord.ext import commands, tasks
+from discord import app_commands
 import matplotlib.pyplot as plt
 import numpy as np
 import datetime
@@ -25,7 +25,7 @@ class PickleConfig:
     MAX_SIZE = 32
     GRAPH_COLOR = 'white'
     HIGHLIGHT_COLOR = 'purple'
-    EMBED_COLOR = nextcord.Color.purple()
+    EMBED_COLOR = discord.Color.purple()
     PICKLE_EMOJI = "🍆"
     
     # Special user IDs loaded from environment
@@ -102,7 +102,7 @@ class PickleData:
 class PickleGraphs:
     """Handles all graph generation for the Pickle module"""
     @staticmethod
-    async def create_history_graph(history: List[Tuple[datetime.date, int]], user: nextcord.Member) -> Tuple[io.BytesIO, dict]:
+    async def create_history_graph(history: List[Tuple[datetime.date, int]], user: discord.Member) -> Tuple[io.BytesIO, dict]:
         """Creates a graph of pickle size history"""
         dates = [h[0] for h in history]
         sizes = [h[1] for h in history]
@@ -128,6 +128,7 @@ class PickleGraphs:
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         buf.seek(0)
+        plt.close()
 
         # Calculate stats
         stats = {
@@ -144,12 +145,16 @@ class Pickle(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.data = PickleData()
-        self._setup_monthly_reset()
+        self.monthly_reset.start()
 
-    def _setup_monthly_reset(self):
-        """Set up the monthly reset task"""
-        @tasks.loop(hours=1)  # Check every hour
-        async def check_monthly_reset():
+    async def cog_unload(self):
+        """Clean up when cog is unloaded"""
+        self.monthly_reset.cancel()
+
+    @tasks.loop(hours=1)  # Check every hour
+    async def monthly_reset(self):
+        """Check if it's time for monthly reset and perform reset if needed"""
+        try:
             now = datetime.datetime.now()
             # If it's the first day of the month and between 00:00 and 01:00
             if now.day == 1 and now.hour == 0:
@@ -181,7 +186,7 @@ class Pickle(commands.Cog):
                         if channel:
                             try:
                                 await channel.send(
-                                    embed=nextcord.Embed(
+                                    embed=discord.Embed(
                                         title=f"{PickleConfig.PICKLE_EMOJI} Monthly Pickle Reset {PickleConfig.PICKLE_EMOJI}",
                                         description="All pickle sizes have been reset for the new month! Use `/pickle` to get your new size!",
                                         color=PickleConfig.EMBED_COLOR
@@ -192,12 +197,16 @@ class Pickle(commands.Cog):
                     
                     logger.info("Monthly pickle size reset completed successfully")
                 except Exception as e:
-                    logger.error(f"Error during monthly pickle reset: {e}")
+                    logger.error(f"Error during monthly reset operations: {e}")
+        except Exception as e:
+            logger.error(f"Error in monthly reset task: {e}")
 
-        # Start the task loop
-        check_monthly_reset.start()
+    @monthly_reset.before_loop
+    async def before_monthly_reset(self):
+        """Wait until the bot is ready before starting the task"""
+        await self.bot.wait_until_ready()
         
-    def _get_size_message(self, user: nextcord.Member, size: int) -> str:
+    def _get_size_message(self, user: discord.Member, size: int) -> str:
         """Generate appropriate message based on user and size"""
         if user.id == PickleConfig.STEVE_ID:
             return f"Master, your pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
@@ -210,9 +219,8 @@ class Pickle(commands.Cog):
         else:
             return f"**{user.display_name}**'s pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
 
-    @nextcord.slash_command(description="Shows the size of your pickle")
-    async def pickle(self, interaction: nextcord.Interaction, 
-                    member: Optional[nextcord.Member] = nextcord.SlashOption(required=False)):
+    @app_commands.command(name="pickle", description="Shows the size of your pickle")
+    async def pickle(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         """Check pickle size for yourself or another member"""
         target = member or interaction.user
         
@@ -224,7 +232,7 @@ class Pickle(commands.Cog):
                 await self.data.set_size(target.id, size)
                 
             message = self._get_size_message(target, size)
-            embed = Embed(description=message, color=PickleConfig.EMBED_COLOR)
+            embed = discord.Embed(description=message, color=PickleConfig.EMBED_COLOR)
             
             await interaction.response.send_message(embed=embed)
             
@@ -235,8 +243,8 @@ class Pickle(commands.Cog):
                 ephemeral=True
             )
 
-    @nextcord.slash_command(description="Shows the pickle size leaderboard")
-    async def pickleboard(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="pickleboard", description="Shows the pickle size leaderboard")
+    async def pickleboard(self, interaction: discord.Interaction):
         """Display the pickle size leaderboard"""
         try:
             leaderboard = await self.data.get_leaderboard()
@@ -252,7 +260,7 @@ class Pickle(commands.Cog):
                 if member:
                     lb_text += f"**{i}.** {member.name} - **{entry['current_size']}** cm\n"
 
-            embed = nextcord.Embed(
+            embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
                 description=lb_text,
                 color=PickleConfig.EMBED_COLOR
@@ -267,9 +275,8 @@ class Pickle(commands.Cog):
                 ephemeral=True
             )
 
-    @nextcord.slash_command(description="Shows your pickle size history graph")
-    async def picklegraph(self, interaction: nextcord.Interaction,
-                         member: Optional[nextcord.Member] = nextcord.SlashOption(required=False)):
+    @app_commands.command(name="picklegraph", description="Shows your pickle size history graph")
+    async def picklegraph(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         """Display a graph of pickle size history"""
         target = member or interaction.user
         
@@ -277,10 +284,10 @@ class Pickle(commands.Cog):
             history = await self.data.get_history(target.id)
             
             if not history:
-                embed = nextcord.Embed(
+                embed = discord.Embed(
                     description=f"No pickle history found for **{target.display_name}**.\n"
                               f"Use `/pickle` first!",
-                    color=nextcord.Color.red()
+                    color=discord.Color.red()
                 )
                 await interaction.response.send_message(embed=embed)
                 return
@@ -289,7 +296,7 @@ class Pickle(commands.Cog):
             graph_buf, stats = await PickleGraphs.create_history_graph(history, target)
             
             # Create embed
-            embed = nextcord.Embed(
+            embed = discord.Embed(
                 title="Yearly Pickle Length History",
                 color=PickleConfig.EMBED_COLOR,
                 timestamp=datetime.datetime.now()
@@ -312,7 +319,7 @@ class Pickle(commands.Cog):
             embed.set_thumbnail(url='https://cdn3.emoji.gg/emojis/1774-hd-eggplant.png')
             
             # Send response
-            file = nextcord.File(graph_buf, filename='pickle_history.png')
+            file = discord.File(graph_buf, filename='pickle_history.png')
             embed.set_image(url='attachment://pickle_history.png')
             
             await interaction.response.send_message(
@@ -328,16 +335,13 @@ class Pickle(commands.Cog):
                 ephemeral=True
             )
 
-    @commands.has_permissions(administrator=True)
-    @nextcord.slash_command(
-        name="resetpickles",
-        description="Reset all pickle sizes (Admin only)",
-        guild_ids=[1165008766345953351]
-    )
-    async def reset_pickles(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="resetpickles", description="Reset all pickle sizes (Admin only)")
+    @app_commands.guilds(discord.Object(id=1165008766345953351))
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_pickles(self, interaction: discord.Interaction):
         """Reset all pickle sizes (Admin only)"""
         try:
-            self.db.execute("TRUNCATE TABLE pickle_sizes, pickle_history", commit=True)
+            self.data.db.execute("TRUNCATE TABLE pickle_sizes, pickle_history", commit=True)
             await interaction.response.send_message(
                 "All pickle sizes have been reset!", 
                 ephemeral=True
@@ -349,5 +353,5 @@ class Pickle(commands.Cog):
                 ephemeral=True
             )
 
-def setup(bot: commands.Bot):
-    bot.add_cog(Pickle(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Pickle(bot))
