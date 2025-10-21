@@ -192,6 +192,16 @@ class PickleBoardView(discord.ui.View):
         self.is_global = False
         self.leaderboard_data = leaderboard_data  # Cache the leaderboard data
         self.user_cache = {}  # Cache for user data
+        self.message = None
+
+    async def on_timeout(self):
+        """Called when the view times out - removes the buttons"""
+        if self.message:
+            await self.message.edit(view=None)
+            
+    async def start(self, interaction: discord.Interaction):
+        """Store the message after it's sent"""
+        self.message = await interaction.original_response()
     
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -454,6 +464,7 @@ class Pickle(commands.Cog):
             view = PickleBoardView(self, interaction.guild_id, leaderboard)
             
             await interaction.response.send_message(embed=embed, view=view)
+            await view.start(interaction)
             
         except Exception as e:
             logger.error(f"Error in pickleboard command: {e}")
