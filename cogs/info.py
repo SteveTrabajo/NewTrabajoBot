@@ -144,7 +144,7 @@ class InfoCog(commands.Cog):
     async def invite(self, interaction: Interaction):
         logger.info(f"/invite invoked by {interaction.user}")
         await interaction.response.defer(thinking=True, ephemeral=True)
-        invite_link = "https://discord.com/oauth2/authorize?client_id=1157930442188652616"
+        invite_link = "https://discord.com/oauth2/authorize?client_id=1000039115183640588"
         # Create the URL button
         link_button = Button(label="🤖 Invite TrabajoBot", url=invite_link)
 
