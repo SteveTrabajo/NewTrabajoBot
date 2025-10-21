@@ -59,45 +59,105 @@ class PickleData:
 
     async def get_size(self, user_id: int) -> Optional[int]:
         """Get current pickle size for a user"""
-        self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
-        result = self.db.fetchone()
-        return result['current_size'] if result else None
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self.db.execute("BEGIN")
+                self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
+                result = self.db.fetchone()
+                self.db.execute("COMMIT")
+                return result['current_size'] if result else None
+            except Exception as e:
+                self.db.execute("ROLLBACK")
+                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
+                    retry_count += 1
+                    continue
+                raise
 
     async def set_size(self, user_id: int, size: int):
         """Set pickle size for a user and record in history"""
-        # Update current size
-        self.db.execute("""
-            INSERT INTO pickle_sizes (user_id, current_size)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id) DO UPDATE
-            SET current_size = %s, last_updated = CURRENT_TIMESTAMP
-        """, (user_id, size, size), commit=True)
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Start a new transaction
+                self.db.execute("BEGIN")
+                
+                # Update current size
+                self.db.execute("""
+                    INSERT INTO pickle_sizes (user_id, current_size)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET current_size = %s, last_updated = CURRENT_TIMESTAMP
+                """, (user_id, size, size))
 
-        # Add to history
-        self.db.execute("""
-            INSERT INTO pickle_history (user_id, size)
-            VALUES (%s, %s)
-        """, (user_id, size), commit=True)
+                # Add to history
+                self.db.execute("""
+                    INSERT INTO pickle_history (user_id, size)
+                    VALUES (%s, %s)
+                """, (user_id, size))
+                
+                # Commit the transaction
+                self.db.execute("COMMIT")
+                break  # Success, exit the retry loop
+                
+            except Exception as e:
+                self.db.execute("ROLLBACK")  # Rollback the failed transaction
+                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
+                    retry_count += 1
+                    continue  # Retry the transaction
+                raise  # Re-raise the exception if we've exhausted retries or it's a different error
 
     async def get_leaderboard(self) -> List[Dict]:
         """Get the current pickle size leaderboard"""
-        self.db.execute("""
-            SELECT user_id, current_size 
-            FROM pickle_sizes 
-            ORDER BY current_size DESC
-        """)
-        return self.db.fetchall()
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self.db.execute("BEGIN")
+                self.db.execute("""
+                    SELECT user_id, current_size 
+                    FROM pickle_sizes 
+                    ORDER BY current_size DESC
+                """)
+                result = self.db.fetchall()
+                self.db.execute("COMMIT")
+                return result
+            except Exception as e:
+                self.db.execute("ROLLBACK")
+                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
+                    retry_count += 1
+                    continue
+                raise
 
     async def get_history(self, user_id: int, months: int = 12) -> List[Tuple[datetime.date, int]]:
         """Get pickle size history for a user"""
-        self.db.execute("""
-            SELECT recorded_at::date as date, size
-            FROM pickle_history
-            WHERE user_id = %s
-            AND recorded_at > NOW() - INTERVAL '%s MONTHS'
-            ORDER BY recorded_at ASC
-        """, (user_id, months))
-        return [(row['date'], row['size']) for row in self.db.fetchall()]
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self.db.execute("BEGIN")
+                self.db.execute("""
+                    SELECT recorded_at::date as date, size
+                    FROM pickle_history
+                    WHERE user_id = %s
+                    AND recorded_at > NOW() - INTERVAL '%s MONTHS'
+                    ORDER BY recorded_at ASC
+                """, (user_id, months))
+                result = [(row['date'], row['size']) for row in self.db.fetchall()]
+                self.db.execute("COMMIT")
+                return result
+            except Exception as e:
+                self.db.execute("ROLLBACK")
+                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
+                    retry_count += 1
+                    continue
+                raise
 
 class PickleGraphs:
     """Handles all graph generation for the Pickle module"""
