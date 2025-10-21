@@ -35,23 +35,18 @@ class MyBot(commands.Bot):
         logger.info("Starting bot setup...")
 
         # ------------------------------------------------------
-        # Load cogs
+        # Dynamically load all cogs from the cogs directory
         # ------------------------------------------------------
-        cogs = [
-            "cogs.admin",
-            "cogs.music",
-            "cogs.moderation",
-            "cogs.fun",
-            "cogs.info",
-            "cogs.birthdays",
-            "cogs.help"
-        ]
-        for cog in cogs:
-            try:
-                await self.load_extension(cog)
-                logger.info(f"Loaded extension: {cog}")
-            except Exception as e:
-                logger.error(f"Failed to load cog {cog}: {e}")
+        cogs_dir = os.path.join(os.path.dirname(__file__), 'cogs')
+        for filename in os.listdir(cogs_dir):
+            # Check if the file is a Python file and not a special file
+            if filename.endswith('.py') and not filename.startswith('_'):
+                cog_name = f"cogs.{filename[:-3]}"  # Remove .py and add cogs. prefix
+                try:
+                    await self.load_extension(cog_name)
+                    logger.info(f"Loaded extension: {cog_name}")
+                except Exception as e:
+                    logger.error(f"Failed to load cog {cog_name}: {e}")
 
         # Sync commands with Discord
         synced = await self.tree.sync()
