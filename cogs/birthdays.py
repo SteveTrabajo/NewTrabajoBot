@@ -29,7 +29,6 @@ class BirthdaysCog(commands.Cog):
         creation_query = """
         CREATE TABLE IF NOT EXISTS birthdays (
             user_id BIGINT PRIMARY KEY,
-            guild_id BIGINT NOT NULL,
             birthday_date DATE NOT NULL
         );
         """
@@ -57,13 +56,13 @@ class BirthdaysCog(commands.Cog):
     
         # Execute the database query
         query = """
-            INSERT INTO birthdays (user_id, guild_id, birthday_date)
-            VALUES (%s, %s, %s)
+            INSERT INTO birthdays (user_id, birthday_date)
+            VALUES (%s, %s)
             ON CONFLICT (user_id) DO UPDATE
               SET birthday_date = EXCLUDED.birthday_date
         """
         try:
-            self.db.execute(query, (interaction.user.id, interaction.guild_id, bday), commit=True)
+            self.db.execute(query, (interaction.user.id, bday), commit=True)
             logger.debug(f"Birthday set for user {interaction.user.id} to {bday}")
             await interaction.followup.send(f"Birthday set to {bday} for {interaction.user.mention}")
         except Exception as e:
@@ -77,10 +76,10 @@ class BirthdaysCog(commands.Cog):
         query = """
             SELECT birthday_date
             FROM birthdays
-            WHERE user_id = %s AND guild_id = %s
+            WHERE user_id = %s
         """
         try:
-            self.db.execute(query, (interaction.user.id, interaction.guild.id))
+            self.db.execute(query, (interaction.user.id,))
             row = self.db.fetchone()
             if row:
                 logger.debug(f"User {interaction.user.id} birthday: {row['birthday_date']}")
@@ -99,22 +98,26 @@ class BirthdaysCog(commands.Cog):
         query = """
             SELECT user_id, birthday_date
             FROM birthdays
-            WHERE guild_id = %s
             ORDER BY birthday_date
         """
         try:
-            self.db.execute(query, (interaction.guild_id,))
+            self.db.execute(query, ())
             rows = self.db.fetchall()
             if not rows:
-                logger.debug("No birthdays found in this server.")
-                return await interaction.followup.send("No birthdays found in this server.")
+                logger.debug("No birthdays found.")
+                return await interaction.followup.send("No birthdays found.")
 
             lines = []
             for row in rows:
                 user_id = row["user_id"]
                 birthday = row["birthday_date"]
-                user = await self.bot.fetch_user(user_id)
-                lines.append(f"{user.mention} - {birthday}")
+                # Check if the user is in the current server
+                member = interaction.guild.get_member(user_id)
+                if member is not None:
+                    lines.append(f"{member.mention} - {birthday}")
+
+            if not lines:
+                return await interaction.followup.send("No birthdays found for members in this server.")
 
             await interaction.followup.send("\n".join(lines))
         except Exception as e:
