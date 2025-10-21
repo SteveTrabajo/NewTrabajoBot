@@ -2,6 +2,7 @@ TrabajoBot
 
 A Discord bot built to bring efficient, fun, and reliable features to your server.
 
+
 🚀 Features
 
 Moderation commands (kick, ban, mute)
@@ -14,17 +15,19 @@ Slash commands integration via Discord’s Application Commands API
 
 Easily extensible for additional features
 
+
 🛠 Tech Stack
 
 Language: Python
 
-Library: discord.py (or specify version if using fork like nextcord, pycord)
+Library: discord.py 
 
-Hosted on (e.g., Railway, Heroku, VPS) – change accordingly
+Hosted on PebbleHost
 
-Database (optional): SQLite / PostgreSQL / … (mention if used)
+Database: PostgreSQL (CockroachDB)
 
 Environment variables for token and configuration
+
 
 📥 Getting Started
 Prerequisites
@@ -57,6 +60,7 @@ PREFIX=!
 Run the bot:
 python main.py # or whichever your entrypoint is
 
+
 💬 Usage (Slash Commands)
 
 Once the bot is in your server, use commands like:
@@ -69,12 +73,14 @@ Once the bot is in your server, use commands like:
 
 /ban <user> <reason> — ban a user (requires Ban Members permission)
 
+
 🎯 Invite Link
 
 Invite TrabajoBot to your server using the following:
 https://discord.com/oauth2/authorize?client_id=1157930442188652616&scope=bot%20applications.commands&permissions=0
 
 (Modify permissions as needed.)
+
 
 📥 Contributing
 
@@ -91,6 +97,7 @@ Push to your branch (git push origin feature/your-feature)
 Open a Pull Request describing your changes
 
 Make sure your code follows the existing style, includes comments where necessary, and is tested.
+
 
 📝 License
 
