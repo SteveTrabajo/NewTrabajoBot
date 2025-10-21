@@ -64,13 +64,10 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
-                self.db.execute("BEGIN")
                 self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
                 result = self.db.fetchone()
-                self.db.execute("COMMIT")
                 return result['current_size'] if result else None
             except Exception as e:
-                self.db.execute("ROLLBACK")
                 if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
                     retry_count += 1
                     continue
@@ -83,29 +80,22 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
-                # Start a new transaction
-                self.db.execute("BEGIN")
-                
                 # Update current size
                 self.db.execute("""
                     INSERT INTO pickle_sizes (user_id, current_size)
                     VALUES (%s, %s)
                     ON CONFLICT (user_id) DO UPDATE
                     SET current_size = %s, last_updated = CURRENT_TIMESTAMP
-                """, (user_id, size, size))
+                """, (user_id, size, size), commit=True)
 
                 # Add to history
                 self.db.execute("""
                     INSERT INTO pickle_history (user_id, size)
                     VALUES (%s, %s)
-                """, (user_id, size))
-                
-                # Commit the transaction
-                self.db.execute("COMMIT")
+                """, (user_id, size), commit=True)
                 break  # Success, exit the retry loop
                 
             except Exception as e:
-                self.db.execute("ROLLBACK")  # Rollback the failed transaction
                 if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
                     retry_count += 1
                     continue  # Retry the transaction
@@ -118,17 +108,14 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
-                self.db.execute("BEGIN")
                 self.db.execute("""
                     SELECT user_id, current_size 
                     FROM pickle_sizes 
                     ORDER BY current_size DESC
                 """)
                 result = self.db.fetchall()
-                self.db.execute("COMMIT")
                 return result
             except Exception as e:
-                self.db.execute("ROLLBACK")
                 if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
                     retry_count += 1
                     continue
@@ -141,7 +128,6 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
-                self.db.execute("BEGIN")
                 self.db.execute("""
                     SELECT recorded_at::date as date, size
                     FROM pickle_history
@@ -150,10 +136,8 @@ class PickleData:
                     ORDER BY recorded_at ASC
                 """, (user_id, months))
                 result = [(row['date'], row['size']) for row in self.db.fetchall()]
-                self.db.execute("COMMIT")
                 return result
             except Exception as e:
-                self.db.execute("ROLLBACK")
                 if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
                     retry_count += 1
                     continue
