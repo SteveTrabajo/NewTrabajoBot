@@ -1,0 +1,6 @@
+discord.py
+spotipy
+yt_dlp
+python-dotenv
+psycopg2-binary
+wavelink

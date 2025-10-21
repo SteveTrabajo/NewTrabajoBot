@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / compiled files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+*.egg-info/
+.eggs/
+
+# Distribution / packaging
+dist/
+build/
+*.egg
+*.whl
+
+# Environments
+.env
+venv/
+env/
+# Add specific virtual environment names if not covered by the above
+# my_project_venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+
+# Uploaded files
+# If your application handles user uploads, consider ignoring the upload directory
+# media/
+# uploads/
+
+# Jupyter Notebook specific files
+.ipynb_checkpoints/
+# If you want to ignore all .ipynb files
+# *.ipynb
+
+# Pip-related files
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Miscellaneous
+.gitkeep # If used to keep empty directories in Git
