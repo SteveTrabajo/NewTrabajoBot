@@ -206,16 +206,39 @@ class Pickle(commands.Cog):
         """Wait until the bot is ready before starting the task"""
         await self.bot.wait_until_ready()
         
-    def _get_size_message(self, user: discord.Member, size: int) -> str:
+    def _get_size_message(self, user: discord.Member, size: int, is_new: bool, mentioned_by: Optional[discord.Member] = None) -> str:
         """Generate appropriate message based on user and size"""
-        if user.id == PickleConfig.STEVE_ID:
-            return f"Master, your pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
+        # If the bot itself is mentioned
+        if user.id == PickleConfig.SELF_ID:
+            if mentioned_by and mentioned_by.id == PickleConfig.STEVE_ID:
+                return f"**Oh master, my pickle size could never be as big as yours.**\n\nIt is a mere **{size} cm**."
+            else:
+                return f"I dunno, maybe ask your mom?\n\nJK, it's **{size}** cm."
+        
+        # If Steve is mentioned or uses the command
+        elif user.id == PickleConfig.STEVE_ID:
+            if is_new:
+                if size > 25:
+                    return f"**Master! You did well this month.**\nYour pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
+                else:
+                    return f"**I am so sorry master, I have failed you.**\nYour peepee is **{size} cm** this month {PickleConfig.PICKLE_EMOJI}"
+            else:
+                return f"Master, your pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
+        
+        # If Lior is mentioned or uses the command
         elif user.id == PickleConfig.LIOR_ID:
-            return (f"**DAMN Lior! You got lucky this month.**\n"
-                   f"Your pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
-                   if size > 10 else
-                   f"**HAH! Smol PP as always.**\n"
-                   f"Those **{size} cm** couldn't even satisfy a fleshlight! {PickleConfig.PICKLE_EMOJI}")
+            if mentioned_by:  # Someone mentioned Lior
+                if size < 10:
+                    return f"Pfft, pathetic. **Lior**'s size this month is just **{size} cm**.\nShameful {PickleConfig.PICKLE_EMOJI}"
+                else:
+                    return f"Looks like **Lior** got lucky this month.\nHe got a whopping **{size} cm**. {PickleConfig.PICKLE_EMOJI}"
+            else:  # Lior used the command
+                if size > 10:
+                    return f"**DAMN Lior! You got lucky this month.**\nYour pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
+                else:
+                    return f"**HAH! Smol PP as always.**\nThose **{size} cm** couldn't even satisfy a fleshlight! {PickleConfig.PICKLE_EMOJI}"
+        
+        # For everyone else
         else:
             return f"**{user.display_name}**'s pickle size is **{size} cm**! {PickleConfig.PICKLE_EMOJI}"
 
@@ -223,15 +246,17 @@ class Pickle(commands.Cog):
     async def pickle(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         """Check pickle size for yourself or another member"""
         target = member or interaction.user
+        mentioned_by = interaction.user if member else None
         
         try:
             size = await self.data.get_size(target.id)
+            is_new = size is None
             
-            if size is None:
+            if is_new:
                 size = np.random.randint(PickleConfig.MIN_SIZE, PickleConfig.MAX_SIZE + 1)
                 await self.data.set_size(target.id, size)
                 
-            message = self._get_size_message(target, size)
+            message = self._get_size_message(target, size, is_new, mentioned_by)
             embed = discord.Embed(description=message, color=PickleConfig.EMBED_COLOR)
             
             await interaction.response.send_message(embed=embed)
