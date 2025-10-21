@@ -4,3 +4,5 @@ yt_dlp
 python-dotenv
 psycopg2-binary
 wavelink
+matplotlib
+numpy
