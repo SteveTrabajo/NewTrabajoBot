@@ -94,7 +94,7 @@ class PickleData:
             SELECT recorded_at::date as date, size
             FROM pickle_history
             WHERE user_id = %s
-            AND recorded_at > NOW() - INTERVAL %s MONTH
+            AND recorded_at > NOW() - INTERVAL '%s MONTHS'
             ORDER BY recorded_at ASC
         """, (user_id, months))
         return [(row['date'], row['size']) for row in self.db.fetchall()]
