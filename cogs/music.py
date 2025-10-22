@@ -143,7 +143,7 @@ class MusicCog(commands.Cog):
             next_t = player.queue.get()
             await player.play(next_t, volume=30)
             # optionally send a "Now playing" message
-            await interaction.followup.send(f"Now playing: **{next_t.title}**")
+            # await interaction.followup.send(f"Now playing: **{next_t.title}**")
 
     # ---------------------------------------------------------
     # /skip
