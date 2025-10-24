@@ -301,7 +301,8 @@ class PickleBoardView(discord.ui.View):
 
 class Pickle(commands.Cog):
     """A cog that handles the pickle size game functionality"""
-    
+    cog_name = "Pickle"
+    cog_description = "Pickle commands"
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.data = PickleData()
