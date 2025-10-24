@@ -64,6 +64,12 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
+                # Ensure clean transaction state
+                try:
+                    self.db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                    
                 self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
                 result = self.db.fetchone()
                 return result['current_size'] if result else None
@@ -80,7 +86,13 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
-                # Wrap both operations in a single transaction
+                # Ensure clean transaction state
+                try:
+                    self.db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                    
+                # Start new transaction
                 self.db.execute("BEGIN")
                 
                 # Update current size
@@ -103,8 +115,11 @@ class PickleData:
                 
             except Exception as e:
                 # Rollback on any error
-                self.db.execute("ROLLBACK")
-                
+                try:
+                    self.db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                    
                 if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
                     retry_count += 1
                     continue  # Retry the transaction
@@ -117,6 +132,12 @@ class PickleData:
         
         while retry_count < max_retries:
             try:
+                # Ensure clean transaction state
+                try:
+                    self.db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                    
                 self.db.execute("""
                     SELECT user_id, current_size 
                     FROM pickle_sizes 
@@ -330,6 +351,15 @@ class Pickle(commands.Cog):
             if now.day == 1 and now.hour == 0:
                 logger.info("Performing monthly pickle size reset...")
                 try:
+                    # Ensure clean transaction state
+                    try:
+                        self.data.db.execute("ROLLBACK")
+                    except Exception:
+                        pass
+
+                    # Start transaction
+                    self.data.db.execute("BEGIN")
+                    
                     # Archive current month's data
                     self.data.db.execute("""
                         INSERT INTO pickle_history (user_id, size)
@@ -340,10 +370,20 @@ class Pickle(commands.Cog):
                             WHERE pickle_history.user_id = pickle_sizes.user_id
                             AND DATE_TRUNC('month', recorded_at) = DATE_TRUNC('month', CURRENT_TIMESTAMP)
                         )
-                    """, commit=True)
+                    """)
                     
                     # Reset current sizes
-                    self.data.db.execute("TRUNCATE TABLE pickle_sizes", commit=True)
+                    self.data.db.execute("TRUNCATE TABLE pickle_sizes")
+                    
+                    # Commit transaction
+                    self.data.db.execute("COMMIT")
+                except Exception as e:
+                    # Ensure we rollback on any error
+                    try:
+                        self.data.db.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
                     
                     # Notify in all guilds where the bot is present
                     for guild in self.bot.guilds:
