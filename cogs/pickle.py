@@ -240,8 +240,8 @@ class PickleBoardView(discord.ui.View):
     async def start(self, interaction: discord.Interaction):
         """Initialize the view by pre-fetching data and storing the message"""
         self.message = await interaction.original_response()
-        # Pre-generate server leaderboard text
-        self.server_text = await self.generate_server_leaderboard()
+        # Pre-generate server leaderboard
+        await self.prepare_server_leaderboard()
         # Pre-fetch global users in the background
         self.cog.bot.loop.create_task(self.prepare_global_leaderboard())
 
@@ -315,7 +315,6 @@ class PickleBoardView(discord.ui.View):
         self.prev_page.style = discord.ButtonStyle.secondary
         self.next_page.style = discord.ButtonStyle.secondary
 
-    @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary)
     @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=1)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Go to previous page"""
