@@ -222,10 +222,15 @@ class PickleBoardView(discord.ui.View):
         self.is_global = False
         self.leaderboard_data = leaderboard_data  # Cache the leaderboard data
         self.guild_members = guild_members  # Cache guild members
-        self.global_text = None  # Cache for global leaderboard text
-        self.server_text = None  # Cache for server leaderboard text
+        self.global_entries = []  # Cache for global leaderboard entries
+        self.server_entries = []  # Cache for server leaderboard entries
         self.message = None
-        self.user_cache = {}  # Cache for user data
+        self.user_cache = {}
+        self.page = 0
+        self.entries_per_page = 10
+        # Hide pagination buttons initially
+        self.prev_page.disabled = True
+        self.next_page.disabled = True  # Cache for user data
 
     async def on_timeout(self):
         """Called when the view times out - removes the buttons"""
@@ -241,49 +246,107 @@ class PickleBoardView(discord.ui.View):
         self.cog.bot.loop.create_task(self.prepare_global_leaderboard())
 
     async def prepare_global_leaderboard(self):
-        """Pre-fetch global users and prepare global leaderboard text"""
+        """Pre-fetch global users and prepare global leaderboard entries"""
         try:
             user_ids = [entry['user_id'] for entry in self.leaderboard_data]
             users = await self.bulk_fetch_users(user_ids)
             
-            # Build global leaderboard text
-            lb_text = []
-            rank = 1
+            # Build global leaderboard entries
+            self.global_entries = []
             for entry in self.leaderboard_data:
                 user = users.get(entry['user_id'])
                 if user:
-                    lb_text.append(f"**{rank}.** {user.name} - **{entry['current_size']}** cm")
-                    rank += 1
+                    self.global_entries.append({
+                        'name': user.name,
+                        'size': entry['current_size']
+                    })
             
-            self.global_text = "\n".join(lb_text) if lb_text else "No pickle sizes recorded yet!"
+            # Update pagination buttons
+            await self.update_buttons()
+            
         except Exception as e:
             logger.error(f"Error preparing global leaderboard: {e}")
-            self.global_text = "Error loading global leaderboard"
+            self.global_entries = []
 
-    async def generate_server_leaderboard(self) -> str:
-        """Generate server-specific leaderboard text"""
-        lb_text = []
-        rank = 1
+    async def prepare_server_leaderboard(self):
+        """Generate server-specific leaderboard entries"""
+        self.server_entries = []
         for entry in self.leaderboard_data:
             member = self.guild_members.get(entry['user_id'])
             if member:
-                lb_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
-                rank += 1
+                self.server_entries.append({
+                    'name': member.name,
+                    'size': entry['current_size']
+                })
         
-        return "\n".join(lb_text) if lb_text else "No pickle sizes recorded in this server yet!"
+        # Update pagination buttons
+        await self.update_buttons()
+
+    def get_current_page_content(self) -> str:
+        """Get the content for the current page"""
+        entries = self.global_entries if self.is_global else self.server_entries
+        if not entries:
+            return "No pickle sizes recorded yet!"
+
+        start_idx = self.page * self.entries_per_page
+        end_idx = start_idx + self.entries_per_page
+        current_entries = entries[start_idx:end_idx]
+        
+        if not current_entries:
+            return "No entries on this page."
+        
+        lb_text = []
+        for i, entry in enumerate(current_entries, start=start_idx + 1):
+            lb_text.append(f"**{i}.** {entry['name']} - **{entry['size']}** cm")
+        
+        total_pages = (len(entries) + self.entries_per_page - 1) // self.entries_per_page
+        page_info = f"\n\nPage {self.page + 1}/{total_pages}" if total_pages > 1 else ""
+        return "\n".join(lb_text) + page_info
+
+    async def update_buttons(self):
+        """Update the state of pagination buttons"""
+        entries = self.global_entries if self.is_global else self.server_entries
+        total_pages = (len(entries) + self.entries_per_page - 1) // self.entries_per_page
+        
+        self.prev_page.disabled = self.page <= 0
+        self.next_page.disabled = self.page >= total_pages - 1
+        
+        # Only show pagination buttons if there's more than one page
+        self.prev_page.style = discord.ButtonStyle.secondary
+        self.next_page.style = discord.ButtonStyle.secondary
 
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=1)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous page"""
+        self.page = max(0, self.page - 1)
+        await self.update_leaderboard(interaction)
+
+    @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary, row=1)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle between global and server leaderboard"""
+        self.page = 0  # Reset to first page when switching views
         if self.is_global:
             # Switch to server view
             button.label = "Show Global"
-            await self.update_leaderboard(interaction, False)
+            self.is_global = False
+            await self.update_leaderboard(interaction)
         else:
             # Switch to global view
             button.label = "Show Server"
-            await self.update_leaderboard(interaction, True)
-        self.is_global = not self.is_global
+            self.is_global = True
+            if not self.global_entries:
+                await interaction.response.defer()
+                await self.prepare_global_leaderboard()
+            await self.update_leaderboard(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next page"""
+        entries = self.global_entries if self.is_global else self.server_entries
+        total_pages = (len(entries) + self.entries_per_page - 1) // self.entries_per_page
+        self.page = min(self.page + 1, total_pages - 1)
+        await self.update_leaderboard(interaction)
 
     async def bulk_fetch_users(self, user_ids: List[int]) -> Dict[int, discord.User]:
         """Efficiently fetch multiple users at once"""
@@ -316,34 +379,35 @@ class PickleBoardView(discord.ui.View):
 
         return users
 
-    async def update_leaderboard(self, interaction: discord.Interaction, show_global: bool):
+    async def update_leaderboard(self, interaction: discord.Interaction):
         """Update the leaderboard message"""
         try:
             if not self.leaderboard_data:
                 await interaction.response.edit_message(content="No pickle sizes recorded yet!", view=self)
                 return
 
-            # Use cached leaderboard text
-            description = self.global_text if show_global else self.server_text
+            # Get content for current page
+            description = self.get_current_page_content()
             
-            # If global text isn't ready yet, show loading message
-            if show_global and not self.global_text:
+            # If global view isn't ready yet, show loading message
+            if self.is_global and not self.global_entries:
                 description = "Loading global leaderboard..."
 
             embed = discord.Embed(
-                title=f"{PickleConfig.PICKLE_EMOJI} {'Global' if show_global else 'Server'} Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
+                title=f"{PickleConfig.PICKLE_EMOJI} {'Global' if self.is_global else 'Server'} Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
                 description=description,
                 color=PickleConfig.EMBED_COLOR
             )
             
-            await interaction.response.edit_message(embed=embed, view=self)
+            # Update button states
+            await self.update_buttons()
             
-            # If we showed loading message, update once global data is ready
-            if show_global and not self.global_text:
-                await self.prepare_global_leaderboard()
-                if self.message and self.is_global:  # Only update if still showing global view
-                    embed.description = self.global_text
-                    await self.message.edit(embed=embed)
+            # If interaction isn't responded to yet (like in deferred responses)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except:
+                if self.message:
+                    await self.message.edit(embed=embed, view=self)
             
         except Exception as e:
             logger.error(f"Error updating leaderboard: {e}")
@@ -518,21 +582,10 @@ class Pickle(commands.Cog):
             # Create view with buttons and pass all necessary data
             view = PickleBoardView(self, interaction.guild_id, leaderboard, guild_members)
             
-            # Create initial server view embed (global will be prepared in background)
-            server_text = []
-            rank = 1
-            for entry in leaderboard:
-                member = guild_members.get(entry['user_id'])
-                if member:
-                    server_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
-                    rank += 1
-
-            if not server_text:
-                server_text = ["No pickle sizes recorded in this server yet!"]
-
+            # Initial empty embed (will be populated after view starts)
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} Server Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description="\n".join(server_text),
+                description="Loading...",
                 color=PickleConfig.EMBED_COLOR
             )
             
