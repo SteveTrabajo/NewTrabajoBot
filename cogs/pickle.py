@@ -320,20 +320,36 @@ class PickleBoardView(discord.ui.View):
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary, row=1)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle between global and server leaderboard"""
-        await interaction.response.defer()  # Defer right away
+        await interaction.response.defer()
         self.page = 0  # Reset to first page when switching views
         
         if self.is_global:
             # Switch to server view
             button.label = "Show Global"
             self.is_global = False
+            button.disabled = False  # Enable button for server view
             await self.update_leaderboard(interaction)
         else:
-            # Switch to global view
-            button.label = "Show Server"
+            # Switch to global view and disable button while loading
+            button.label = "Loading..."
+            button.disabled = True
             self.is_global = True
+            
+            # Update message to show loading state
+            embed = discord.Embed(
+                title=f"{PickleConfig.PICKLE_EMOJI} Global Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
+                description="Loading global leaderboard...",
+                color=PickleConfig.EMBED_COLOR
+            )
+            await interaction.edit_original_response(embed=embed, view=self)
+            
+            # Load global data if needed
             if not self.global_entries:
                 await self.prepare_global_leaderboard()
+            
+            # Re-enable button and update label
+            button.label = "Show Server"
+            button.disabled = False
             await self.update_leaderboard(interaction)
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
