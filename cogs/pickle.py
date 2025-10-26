@@ -320,19 +320,40 @@ class PickleBoardView(discord.ui.View):
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary, row=1)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle between global and server leaderboard"""
-        self.page = 0  # Reset to first page when switching views
-        if self.is_global:
-            # Switch to server view
-            button.label = "Show Global"
+        try:
+            # Defer the response right away
+            await interaction.response.defer()
+            
+            self.page = 0  # Reset to first page when switching views
+            if self.is_global:
+                # Switch to server view
+                button.label = "Show Global"
+                self.is_global = False
+                await self.update_leaderboard(interaction)
+            else:
+                # Switch to global view
+                button.label = "Show Server"
+                self.is_global = True
+                
+                # Show loading state
+                embed = discord.Embed(
+                    title=f"{PickleConfig.PICKLE_EMOJI} Global Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
+                    description="Loading global leaderboard...",
+                    color=PickleConfig.EMBED_COLOR
+                )
+                await interaction.edit_original_response(embed=embed, view=self)
+                
+                # Prepare global entries if not ready
+                if not self.global_entries:
+                    await self.prepare_global_leaderboard()
+                
+                # Update the leaderboard with the prepared data
+                await self.update_leaderboard(interaction)
+        except Exception as e:
+            logger.error(f"Error in toggle_global: {e}")
+            # Revert to server view on error
             self.is_global = False
-            await self.update_leaderboard(interaction)
-        else:
-            # Switch to global view
-            button.label = "Show Server"
-            self.is_global = True
-            if not self.global_entries:
-                await interaction.response.defer()
-                await self.prepare_global_leaderboard()
+            button.label = "Show Global"
             await self.update_leaderboard(interaction)
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
@@ -378,15 +399,11 @@ class PickleBoardView(discord.ui.View):
         """Update the leaderboard message"""
         try:
             if not self.leaderboard_data:
-                await interaction.response.edit_message(content="No pickle sizes recorded yet!", view=self)
+                await interaction.edit_original_response(content="No pickle sizes recorded yet!", view=self)
                 return
 
             # Get content for current page
             description = self.get_current_page_content()
-            
-            # If global view isn't ready yet, show loading message
-            if self.is_global and not self.global_entries:
-                description = "Loading global leaderboard..."
 
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} {'Global' if self.is_global else 'Server'} Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
@@ -397,19 +414,29 @@ class PickleBoardView(discord.ui.View):
             # Update button states
             await self.update_buttons()
             
-            # If interaction isn't responded to yet (like in deferred responses)
-            try:
-                await interaction.response.edit_message(embed=embed, view=self)
-            except:
-                if self.message:
-                    await self.message.edit(embed=embed, view=self)
+            # Update the message
+            await interaction.edit_original_response(embed=embed, view=self)
             
+        except discord.errors.NotFound:
+            # If the original message was deleted, try to edit via the stored message reference
+            if self.message:
+                try:
+                    await self.message.edit(embed=embed, view=self)
+                except Exception as e:
+                    logger.error(f"Error updating stored message: {e}")
         except Exception as e:
             logger.error(f"Error updating leaderboard: {e}")
-            await interaction.response.edit_message(
-                content="Sorry, something went wrong updating the leaderboard!", 
-                view=self
-            )
+            try:
+                await interaction.edit_original_response(
+                    content="Sorry, something went wrong updating the leaderboard!", 
+                    view=self
+                )
+            except:
+                if self.message:
+                    await self.message.edit(
+                        content="Sorry, something went wrong updating the leaderboard!",
+                        view=self
+                    )
 
 
 class Pickle(commands.Cog):
