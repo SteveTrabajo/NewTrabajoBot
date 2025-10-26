@@ -215,7 +215,7 @@ class PickleGraphs:
 
 class PickleBoardView(discord.ui.View):
     """View for the pickle leaderboard with toggle buttons"""
-    async def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict], guild_members: Dict[int, discord.Member]):
+    def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict], guild_members: Dict[int, discord.Member]):
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
         self.guild_id = guild_id
@@ -233,6 +233,10 @@ class PickleBoardView(discord.ui.View):
         self.next_page.disabled = True
         # Disable toggle button until server data is loaded
         self.toggle_global.disabled = True
+        
+    async def initialize(self):
+        """Initialize the view with server data"""
+        await self.prepare_server_leaderboard()
 
     async def on_timeout(self):
         """Called when the view times out - removes the buttons"""
@@ -576,13 +580,10 @@ class Pickle(commands.Cog):
     async def pickleboard(self, interaction: discord.Interaction):
         """Display the pickle size leaderboard"""
         try:
-            # Defer the response since we'll need a moment to prepare the data
-            await interaction.response.defer()
-            
             leaderboard = await self.data.get_leaderboard()
             
             if not leaderboard:
-                await interaction.followup.send("No pickle sizes recorded yet!")
+                await interaction.response.send_message("No pickle sizes recorded yet!")
                 return
 
             # Get all guild members once
@@ -591,22 +592,19 @@ class Pickle(commands.Cog):
             # Create view with buttons and pass all necessary data
             view = PickleBoardView(self, interaction.guild_id, leaderboard, guild_members)
             
-            # Prepare the server leaderboard data first
-            await view.prepare_server_leaderboard()
-            
-            # Create initial embed with the server leaderboard
+            # Initial empty embed
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} Server Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description=view.get_current_page_content(),
+                description="Loading...",
                 color=PickleConfig.EMBED_COLOR
             )
             
-            # Send the message with the prepared data
-            message = await interaction.followup.send(embed=embed, view=view)
-            view.message = message
+            # Send initial message
+            await interaction.response.send_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
             
-            # Start background task for global data
-            self.bot.loop.create_task(view.prepare_global_leaderboard())
+            # Initialize the view (loads server data)
+            await view.initialize()
             
         except Exception as e:
             logger.error(f"Error in pickleboard command: {e}")
