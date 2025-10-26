@@ -228,24 +228,16 @@ class PickleBoardView(discord.ui.View):
         self.user_cache = {}
         self.page = 0
         self.entries_per_page = 10
-        # Hide pagination buttons initially
+        # Initialize pagination buttons
         self.prev_page.disabled = True
         self.next_page.disabled = True
-        # Disable toggle button until server data is loaded
-        self.toggle_global.disabled = True
-        
-    async def initialize(self):
-        """Initialize the view with server data"""
-        await self.prepare_server_leaderboard()
+        # Initialize toggle button
+        self.toggle_global.disabled = False  # Start enabled for server view
 
     async def on_timeout(self):
         """Called when the view times out - removes the buttons"""
         if self.message:
             await self.message.edit(view=None)
-            
-    async def start(self):
-        """Initialize the view - no longer needed but kept for compatibility"""
-        pass
 
     async def prepare_global_leaderboard(self):
         """Pre-fetch global users and prepare global leaderboard entries"""
@@ -338,17 +330,19 @@ class PickleBoardView(discord.ui.View):
             await self.update_leaderboard(interaction)
         else:
             # Switch to global view
-            button.label = "Show Server"
+            button.label = "Loading..."
+            button.disabled = True  # Disable while loading
             self.is_global = True
-            # Disable button while loading global data
-            button.disabled = True
+            await self.update_leaderboard(interaction)  # Show loading state
             
+            # Load global data if needed
             if not self.global_entries:
                 await self.prepare_global_leaderboard()
-                
-            # Re-enable button after loading
+            
+            # Update button state
+            button.label = "Show Server"
             button.disabled = False
-            await self.update_leaderboard(interaction)
+            await self.update_leaderboard(interaction)  # Show loaded data
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -580,31 +574,35 @@ class Pickle(commands.Cog):
     async def pickleboard(self, interaction: discord.Interaction):
         """Display the pickle size leaderboard"""
         try:
+            # Defer response since we'll prepare data
+            await interaction.response.defer()
+            
             leaderboard = await self.data.get_leaderboard()
             
             if not leaderboard:
-                await interaction.response.send_message("No pickle sizes recorded yet!")
+                await interaction.followup.send("No pickle sizes recorded yet!")
                 return
 
             # Get all guild members once
             guild_members = {m.id: m for m in interaction.guild.members}
             
-            # Create view with buttons and pass all necessary data
+            # Create view and prepare server data
             view = PickleBoardView(self, interaction.guild_id, leaderboard, guild_members)
+            await view.prepare_server_leaderboard()  # Load server data first
             
-            # Initial empty embed
+            # Create embed with actual server data
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} Server Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description="Loading...",
+                description=view.get_current_page_content(),
                 color=PickleConfig.EMBED_COLOR
             )
             
-            # Send initial message
-            await interaction.response.send_message(embed=embed, view=view)
-            view.message = await interaction.original_response()
+            # Send message with prepared data
+            message = await interaction.followup.send(embed=embed, view=view)
+            view.message = message
             
-            # Initialize the view (loads server data)
-            await view.initialize()
+            # Start loading global data in background
+            self.bot.loop.create_task(view.prepare_global_leaderboard())
             
         except Exception as e:
             logger.error(f"Error in pickleboard command: {e}")
