@@ -320,7 +320,9 @@ class PickleBoardView(discord.ui.View):
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary, row=1)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle between global and server leaderboard"""
+        await interaction.response.defer()  # Defer right away
         self.page = 0  # Reset to first page when switching views
+        
         if self.is_global:
             # Switch to server view
             button.label = "Show Global"
@@ -331,7 +333,6 @@ class PickleBoardView(discord.ui.View):
             button.label = "Show Server"
             self.is_global = True
             if not self.global_entries:
-                await interaction.response.defer()
                 await self.prepare_global_leaderboard()
             await self.update_leaderboard(interaction)
 
