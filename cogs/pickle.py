@@ -215,14 +215,17 @@ class PickleGraphs:
 
 class PickleBoardView(discord.ui.View):
     """View for the pickle leaderboard with toggle buttons"""
-    def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict]):
+    def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict], guild_members: Dict[int, discord.Member]):
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
         self.guild_id = guild_id
         self.is_global = False
         self.leaderboard_data = leaderboard_data  # Cache the leaderboard data
-        self.user_cache = {}  # Cache for user data
+        self.guild_members = guild_members  # Cache guild members
+        self.global_text = None  # Cache for global leaderboard text
+        self.server_text = None  # Cache for server leaderboard text
         self.message = None
+        self.user_cache = {}  # Cache for user data
 
     async def on_timeout(self):
         """Called when the view times out - removes the buttons"""
@@ -230,9 +233,45 @@ class PickleBoardView(discord.ui.View):
             await self.message.edit(view=None)
             
     async def start(self, interaction: discord.Interaction):
-        """Store the message after it's sent"""
+        """Initialize the view by pre-fetching data and storing the message"""
         self.message = await interaction.original_response()
-    
+        # Pre-generate server leaderboard text
+        self.server_text = await self.generate_server_leaderboard()
+        # Pre-fetch global users in the background
+        self.cog.bot.loop.create_task(self.prepare_global_leaderboard())
+
+    async def prepare_global_leaderboard(self):
+        """Pre-fetch global users and prepare global leaderboard text"""
+        try:
+            user_ids = [entry['user_id'] for entry in self.leaderboard_data]
+            users = await self.bulk_fetch_users(user_ids)
+            
+            # Build global leaderboard text
+            lb_text = []
+            rank = 1
+            for entry in self.leaderboard_data:
+                user = users.get(entry['user_id'])
+                if user:
+                    lb_text.append(f"**{rank}.** {user.name} - **{entry['current_size']}** cm")
+                    rank += 1
+            
+            self.global_text = "\n".join(lb_text) if lb_text else "No pickle sizes recorded yet!"
+        except Exception as e:
+            logger.error(f"Error preparing global leaderboard: {e}")
+            self.global_text = "Error loading global leaderboard"
+
+    async def generate_server_leaderboard(self) -> str:
+        """Generate server-specific leaderboard text"""
+        lb_text = []
+        rank = 1
+        for entry in self.leaderboard_data:
+            member = self.guild_members.get(entry['user_id'])
+            if member:
+                lb_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
+                rank += 1
+        
+        return "\n".join(lb_text) if lb_text else "No pickle sizes recorded in this server yet!"
+
     @discord.ui.button(label="Show Global", style=discord.ButtonStyle.primary)
     async def toggle_global(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle between global and server leaderboard"""
@@ -250,12 +289,7 @@ class PickleBoardView(discord.ui.View):
         """Efficiently fetch multiple users at once"""
         users = {}
         # First, try to get from cache
-        uncached_ids = []
-        for uid in user_ids:
-            if uid in self.user_cache:
-                users[uid] = self.user_cache[uid]
-            else:
-                uncached_ids.append(uid)
+        uncached_ids = [uid for uid in user_ids if uid not in self.user_cache]
 
         # Fetch remaining users in chunks to avoid rate limits
         if uncached_ids:
@@ -268,12 +302,17 @@ class PickleBoardView(discord.ui.View):
                             user = await self.cog.bot.fetch_user(uid)
                             if user:
                                 users[uid] = user
-                                self.user_cache[uid] = user  # Cache for future use
+                                self.user_cache[uid] = user
                         except Exception:
                             continue
                 except Exception as e:
                     logger.error(f"Error fetching users: {e}")
                     continue
+        
+        # Add cached users
+        for uid in user_ids:
+            if uid in self.user_cache:
+                users[uid] = self.user_cache[uid]
 
         return users
 
@@ -284,43 +323,27 @@ class PickleBoardView(discord.ui.View):
                 await interaction.response.edit_message(content="No pickle sizes recorded yet!", view=self)
                 return
 
-            guild_members = {m.id: m for m in interaction.guild.members}
-            lb_text = []
-            user_ids = []
-
-            # Prepare user IDs to fetch
-            if show_global:
-                user_ids = [entry['user_id'] for entry in self.leaderboard_data]
+            # Use cached leaderboard text
+            description = self.global_text if show_global else self.server_text
             
-            # Get all required users efficiently
-            users = await self.bulk_fetch_users(user_ids) if show_global else {}
-
-            # Build leaderboard text
-            rank = 1
-            for entry in self.leaderboard_data:
-                user_id = entry['user_id']
-                
-                if show_global:
-                    user = users.get(user_id)
-                    if user:
-                        lb_text.append(f"**{rank}.** {user.name} - **{entry['current_size']}** cm")
-                        rank += 1
-                else:
-                    member = guild_members.get(user_id)
-                    if member:
-                        lb_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
-                        rank += 1
-
-            if not lb_text:
-                lb_text = ["No pickle sizes recorded yet!"]
+            # If global text isn't ready yet, show loading message
+            if show_global and not self.global_text:
+                description = "Loading global leaderboard..."
 
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} {'Global' if show_global else 'Server'} Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description="\n".join(lb_text),
+                description=description,
                 color=PickleConfig.EMBED_COLOR
             )
             
             await interaction.response.edit_message(embed=embed, view=self)
+            
+            # If we showed loading message, update once global data is ready
+            if show_global and not self.global_text:
+                await self.prepare_global_leaderboard()
+                if self.message and self.is_global:  # Only update if still showing global view
+                    embed.description = self.global_text
+                    await self.message.edit(embed=embed)
             
         except Exception as e:
             logger.error(f"Error updating leaderboard: {e}")
@@ -328,6 +351,7 @@ class PickleBoardView(discord.ui.View):
                 content="Sorry, something went wrong updating the leaderboard!", 
                 view=self
             )
+
 
 class Pickle(commands.Cog):
     """A cog that handles the pickle size game functionality"""
@@ -482,36 +506,35 @@ class Pickle(commands.Cog):
     async def pickleboard(self, interaction: discord.Interaction):
         """Display the pickle size leaderboard"""
         try:
-            # Fetch leaderboard data once and cache it
             leaderboard = await self.data.get_leaderboard()
             
             if not leaderboard:
                 await interaction.response.send_message("No pickle sizes recorded yet!")
                 return
 
-            # Get all guild members at once for efficiency
+            # Get all guild members once
             guild_members = {m.id: m for m in interaction.guild.members}
             
-            # Build leaderboard text for server members
-            lb_text = []
+            # Create view with buttons and pass all necessary data
+            view = PickleBoardView(self, interaction.guild_id, leaderboard, guild_members)
+            
+            # Create initial server view embed (global will be prepared in background)
+            server_text = []
             rank = 1
             for entry in leaderboard:
                 member = guild_members.get(entry['user_id'])
                 if member:
-                    lb_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
+                    server_text.append(f"**{rank}.** {member.name} - **{entry['current_size']}** cm")
                     rank += 1
 
-            if not lb_text:
-                lb_text = ["No pickle sizes recorded in this server yet!"]
+            if not server_text:
+                server_text = ["No pickle sizes recorded in this server yet!"]
 
             embed = discord.Embed(
                 title=f"{PickleConfig.PICKLE_EMOJI} Server Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description="\n".join(lb_text),
+                description="\n".join(server_text),
                 color=PickleConfig.EMBED_COLOR
             )
-            
-            # Create view with buttons and pass the cached leaderboard data
-            view = PickleBoardView(self, interaction.guild_id, leaderboard)
             
             await interaction.response.send_message(embed=embed, view=view)
             await view.start(interaction)
