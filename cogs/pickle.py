@@ -215,7 +215,7 @@ class PickleGraphs:
 
 class PickleBoardView(discord.ui.View):
     """View for the pickle leaderboard with toggle buttons"""
-    def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict], guild_members: Dict[int, discord.Member]):
+    async def __init__(self, cog, guild_id: int, leaderboard_data: List[Dict], guild_members: Dict[int, discord.Member]):
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
         self.guild_id = guild_id
@@ -230,7 +230,9 @@ class PickleBoardView(discord.ui.View):
         self.entries_per_page = 10
         # Hide pagination buttons initially
         self.prev_page.disabled = True
-        self.next_page.disabled = True  # Cache for user data
+        self.next_page.disabled = True
+        # Disable toggle button until server data is loaded
+        self.toggle_global.disabled = True
 
     async def on_timeout(self):
         """Called when the view times out - removes the buttons"""
@@ -277,6 +279,8 @@ class PickleBoardView(discord.ui.View):
         
         # Update pagination buttons
         await self.update_buttons()
+        # Enable toggle button once server data is loaded
+        self.toggle_global.disabled = False
 
     def get_current_page_content(self) -> str:
         """Get the content for the current page"""
@@ -327,28 +331,18 @@ class PickleBoardView(discord.ui.View):
             # Switch to server view
             button.label = "Show Global"
             self.is_global = False
-            button.disabled = False  # Enable button for server view
             await self.update_leaderboard(interaction)
         else:
-            # Switch to global view and disable button while loading
-            button.label = "Loading..."
-            button.disabled = True
+            # Switch to global view
+            button.label = "Show Server"
             self.is_global = True
+            # Disable button while loading global data
+            button.disabled = True
             
-            # Update message to show loading state
-            embed = discord.Embed(
-                title=f"{PickleConfig.PICKLE_EMOJI} Global Pickle Leaderboard {PickleConfig.PICKLE_EMOJI}",
-                description="Loading global leaderboard...",
-                color=PickleConfig.EMBED_COLOR
-            )
-            await interaction.edit_original_response(embed=embed, view=self)
-            
-            # Load global data if needed
             if not self.global_entries:
                 await self.prepare_global_leaderboard()
-            
-            # Re-enable button and update label
-            button.label = "Show Server"
+                
+            # Re-enable button after loading
             button.disabled = False
             await self.update_leaderboard(interaction)
 
