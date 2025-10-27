@@ -477,24 +477,16 @@ class Pickle(commands.Cog):
                     
                     # Commit transaction
                     self.data.db.execute("COMMIT")
-                except Exception as e:
-                    # Ensure we rollback on any error
-                    try:
-                        self.data.db.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise
+                    
+                    logger.info("Monthly pickle reset completed successfully")
                     
                     # Notify in all guilds where the bot is present
                     for guild in self.bot.guilds:
-                        # Try to find a general or bot channel to send the message
-                        channel = None
-                        for ch in guild.text_channels:
-                            if ch.name in ['general', 'bot', 'bot-commands', 'announcements']:
-                                channel = ch
-                                break
-                        if channel:
-                            try:
+                        try:
+                            # Try to find a general or bot channel to send the message
+                            channel = next((ch for ch in guild.text_channels if ch.name in ['general', 'bot', 'bot-commands', 'announcements']), None)
+                            
+                            if channel:
                                 await channel.send(
                                     embed=discord.Embed(
                                         title=f"{PickleConfig.PICKLE_EMOJI} Monthly Pickle Reset {PickleConfig.PICKLE_EMOJI}",
@@ -502,12 +494,18 @@ class Pickle(commands.Cog):
                                         color=PickleConfig.EMBED_COLOR
                                     )
                                 )
-                            except Exception as e:
-                                logger.error(f"Failed to send reset notification in guild {guild.name}: {e}")
-                    
-                    logger.info("Monthly pickle size reset completed successfully")
+                        except Exception as e:
+                            logger.error(f"Failed to send reset notification in guild {guild.name}: {e}")
+                            
                 except Exception as e:
-                    logger.error(f"Error during monthly reset operations: {e}")
+                    # Ensure we rollback on any error
+                    try:
+                        self.data.db.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    logger.error(f"Failed to perform monthly pickle reset: {e}")
+                    raise
+                    
         except Exception as e:
             logger.error(f"Error in monthly reset task: {e}")
 
