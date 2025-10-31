@@ -54,6 +54,7 @@ class MyBot(commands.Bot):
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="to /help"))
 
 
 if __name__ == "__main__":
