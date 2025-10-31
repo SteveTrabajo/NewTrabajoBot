@@ -36,21 +36,8 @@ class PickleConfig:
 class PickleData:
     """Handles all database operations for the Pickle module"""
     def __init__(self):
-        self._init_db()
-
-    def _init_db(self):
-        """Initialize database connection and ensure tables exist"""
-        try:
-            self.db = Database()
-            self._ensure_tables()
-        except Exception as e:
-            logger.error(f"Error initializing database: {e}")
-            # Try to reconnect
-            try:
-                self.db = Database()
-            except Exception as e:
-                logger.error(f"Failed to reconnect to database: {e}")
-                raise
+        self.db = Database()
+        self._ensure_tables()
 
     def _ensure_tables(self):
         """Ensures all required tables exist in the database"""
@@ -68,100 +55,77 @@ class PickleData:
             PRIMARY KEY (user_id, recorded_at)
         );
         """
-        try:
-            self.db.execute(creation_query, commit=True)
-        except Exception as e:
-            logger.error(f"Error creating tables: {e}")
-            # Try to reconnect and create tables again
-            self._init_db()
+        self.db.execute(creation_query, commit=True)
 
     async def get_size(self, user_id: int) -> Optional[int]:
         """Get current pickle size for a user"""
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
+        try:
+            self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
+            result = self.db.fetchone()
+            return result['current_size'] if result else None
+        except Exception as e:
+            logger.error(f"Database error in get_size: {e}")
+            # Try one reconnect
+            self.db = Database()
             try:
-                # Try to ensure we have a valid connection
-                if not self.db or self.db.is_closed():
-                    self._init_db()
-                
-                # Ensure clean transaction state
-                try:
-                    self.db.execute("ROLLBACK")
-                except Exception:
-                    pass
-                    
                 self.db.execute("SELECT current_size FROM pickle_sizes WHERE user_id = %s", (user_id,))
                 result = self.db.fetchone()
                 return result['current_size'] if result else None
             except Exception as e:
-                if "cursor already closed" in str(e):
-                    # Connection lost, try to reconnect
-                    self._init_db()
-                    retry_count += 1
-                    continue
-                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
-                    retry_count += 1
-                    continue
-                logger.error(f"Database error in get_size: {e}")
+                logger.error(f"Retry failed in get_size: {e}")
                 raise
 
     async def set_size(self, user_id: int, size: int):
         """Set pickle size for a user and record in history"""
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
+        try:
+            # Start transaction
+            self.db.execute("BEGIN")
+            
+            # Update current size
+            self.db.execute("""
+                INSERT INTO pickle_sizes (user_id, current_size)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                SET current_size = %s, last_updated = CURRENT_TIMESTAMP
+            """, (user_id, size, size))
+
+            # Add to history
+            self.db.execute("""
+                INSERT INTO pickle_history (user_id, size)
+                VALUES (%s, %s)
+            """, (user_id, size))
+            
+            # Commit transaction
+            self.db.execute("COMMIT")
+        except Exception as e:
+            logger.error(f"Database error in set_size: {e}")
             try:
-                # Try to ensure we have a valid connection
-                if not self.db or self.db.is_closed():
-                    self._init_db()
-                
-                # Ensure clean transaction state
-                try:
-                    self.db.execute("ROLLBACK")
-                except Exception:
-                    pass
-                    
-                # Start new transaction
+                self.db.execute("ROLLBACK")
+            except:
+                pass
+            
+            # Try one reconnect
+            self.db = Database()
+            try:
                 self.db.execute("BEGIN")
-                
-                # Update current size
                 self.db.execute("""
                     INSERT INTO pickle_sizes (user_id, current_size)
                     VALUES (%s, %s)
                     ON CONFLICT (user_id) DO UPDATE
                     SET current_size = %s, last_updated = CURRENT_TIMESTAMP
                 """, (user_id, size, size))
-
-                # Add to history
                 self.db.execute("""
                     INSERT INTO pickle_history (user_id, size)
                     VALUES (%s, %s)
                 """, (user_id, size))
-                
-                # Commit the transaction
                 self.db.execute("COMMIT")
-                break  # Success, exit the retry loop
-                
             except Exception as e:
-                # Rollback on any error
                 try:
                     self.db.execute("ROLLBACK")
-                except Exception:
+                except:
                     pass
-                
-                if "cursor already closed" in str(e):
-                    # Connection lost, try to reconnect
-                    self._init_db()
-                    retry_count += 1
-                    continue
-                if "TransactionRetryWithProtoRefreshError" in str(e) and retry_count < max_retries - 1:
-                    retry_count += 1
-                    continue  # Retry the transaction
-                logger.error(f"Database error in set_size: {e}")
-                raise  # Re-raise the exception if we've exhausted retries or it's a different error
+                logger.error(f"Retry failed in set_size: {e}")
+                raise
 
     async def get_leaderboard(self) -> List[Dict]:
         """Get the current pickle size leaderboard"""
